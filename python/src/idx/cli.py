@@ -249,6 +249,19 @@ def build_parser():
         help="Minimum daily turnover threshold in billion IDR (default: 1.0)",
     )
 
+    p_bf = sub.add_parser(
+        "brokerflow",
+        help="Per-stock broker positions from your own Invezgo / Sectors API key (cached daily)",
+    )
+    p_bf.add_argument("action", choices=["status", "fetch", "positions"])
+    p_bf.add_argument("ticker", nargs="?", help="Stock code (fetch / positions)")
+    p_bf.add_argument("--from", dest="date_from", default=None, metavar="DATE")
+    p_bf.add_argument("--to", dest="date_to", default=None, metavar="DATE")
+    p_bf.add_argument("--estimate", action="store_true", help="Only count the requests (fetch)")
+    p_bf.add_argument("--refresh", action="store_true", help="Re-fetch cached days (fetch)")
+    p_bf.add_argument("--recent", type=int, default=5, help="Trading days for the status")
+    p_bf.add_argument("--top", type=int, default=20, help="Brokers to print (positions)")
+
     # 7. Backtest
     p_bt = sub.add_parser("backtest", help="Vectorized backtesting of quantitative screens")
     p_bt.add_argument(
@@ -552,6 +565,51 @@ def main(argv=None):
         print(f"  Markdown → {result['markdown']}")
         print(f"  JSON     → {result['json']}")
 
+    elif cmd == "brokerflow":
+        import json
+
+        from idx import brokerflow
+
+        if args.action == "status":
+            print(json.dumps(brokerflow.status(), indent=2))
+            return
+        if not args.ticker:
+            raise SystemExit("brokerflow fetch/positions needs a ticker")
+        if args.action == "fetch":
+            res = brokerflow.fetch(
+                args.ticker,
+                args.date_from,
+                args.date_to,
+                dry_run=args.estimate,
+                refresh=args.refresh,
+            )
+            res.pop("windows", None)
+            print(json.dumps(res, indent=2))
+            return
+        res = brokerflow.positions(args.ticker, args.date_from, args.date_to, args.recent)
+        if not res["brokers"]:
+            print(
+                f"No cached broker data for {res['stock']}; run: idx brokerflow fetch {res['stock']}"
+            )
+            return
+        print(
+            f"{res['stock']} {res['from']}..{res['to']} ({res['days']} days), close {res['close']:,.0f}; "
+            f"status over last {res['recent_days']} days: {res['status_counts']}"
+        )
+        for e in res["adjustment_events"]:
+            print(
+                f"  ! ex-date {e['date']} (factor {e['factor']}): positions span a corporate action"
+            )
+        print(
+            f"{'BRK':4} {'STATUS':12} {'LOTS':>12} {'AVG':>9} {'FLOAT %':>8} {'FLOAT P/L':>16} {'REALIZED':>16}"
+        )
+        for b in res["brokers"][: args.top]:
+            pct = f"{b['floating_pct']:.1f}" if b["floating_pct"] is not None else "-"
+            avg = f"{b['avg_cost']:,.0f}" if b["avg_cost"] else "-"
+            print(
+                f"{b['broker']:4} {b['status']:12} {b['position'] / 100:>12,.0f} {avg:>9} {pct:>8} "
+                f"{b['floating_pl']:>16,.0f} {b['realized_pl']:>16,.0f}"
+            )
     elif cmd == "bandarmology":
         print(f"=== Bandarmology & Broker Flow ({args.date or 'Latest'}) ===")
         from idx.core.timeseries import read_dataset

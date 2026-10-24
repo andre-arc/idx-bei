@@ -10,6 +10,8 @@ Jobs (defaults, overridable with env vars):
   full announcement feed (titles only). After 3 consecutive failures the job is flagged ``alert``.
 - ``prices``         18:30 on trading days, retried every 30 min until 23:00 — stock / broker / index summary.
 - ``screen``         19:00 on trading days — rebuild the title screen (feeds the leads list).
+- ``brokerflow``     19:30 on trading days — cache missing broker-summary days for watched, tracked and top
+  lead tickers with the user's own API key (skipped without one; stops at BROKERFLOW_DAILY_CAP).
 - ``dossiers``       20:00 on trading days — refresh digests of active Deal Tracker tickers.
 - ``cleanup``        Sundays 03:00 — retention and compaction (``idx cleanup --apply``, see pipelines/cleanup.py).
 
@@ -180,6 +182,58 @@ def job_dossiers(now: datetime) -> str:
     )
 
 
+def brokerflow_tickers() -> list[str]:
+    """BROKERFLOW_WATCH + Deal/Rights tracker tickers + the top BROKERFLOW_LEADS_TOP leads."""
+    from idx.deals import load_deals, load_rights, tracked_tickers
+    from idx.leads import latest_screen
+
+    watch = [
+        t.strip().upper() for t in os.environ.get("BROKERFLOW_WATCH", "").split(",") if t.strip()
+    ]
+    tickers = watch + tracked_tickers(load_deals(), load_rights())
+    top = _env_int("BROKERFLOW_LEADS_TOP", 20)
+    if top:
+        screen = latest_screen() or {}
+        leads = [
+            c for c in screen.get("candidates", []) if c.get("score_ma") or c.get("score_capital")
+        ]
+        leads.sort(key=lambda c: -(c.get("score_ma", 0) + c.get("score_capital", 0)))
+        tickers += [c["ticker"] for c in leads[:top]]
+    return list(dict.fromkeys(tickers))
+
+
+def job_brokerflow(now: datetime) -> str:
+    from idx.brokerflow import cache
+    from idx.brokerflow.providers import get_provider
+    from idx.core.timeseries import read_dataset
+
+    provider = get_provider()
+    if provider is None:
+        return "skipped: no INVEZGO_API_KEY / SECTORS_API_KEY"
+    end = now.date().isoformat()
+    start = (now.date() - timedelta(days=_env_int("BROKERFLOW_DAYS", 90))).isoformat()
+    prices = read_dataset("stock_summary", start, end)
+    fetched, stopped, failed = 0, None, []
+    for t in brokerflow_tickers():
+        try:
+            res = cache.fetch(t, start, end, provider, prices=prices)
+        except Exception as exc:  # one bad ticker must not stop the rest
+            log.warning("brokerflow %s failed: %s", t, exc)
+            failed.append(t)
+            continue
+        fetched += res["fetched_days"]
+        if res["stopped"]:
+            stopped = res["stopped"]
+            break
+    u = cache.usage()
+    msg = f"{fetched} stock-days fetched, {u['today']} requests today ({u['month']} this month)"
+    if stopped:
+        msg += f"; stopped: {stopped}"
+    if failed:
+        msg += f"; failed: {', '.join(failed)}"
+    return msg
+
+
 def job_cleanup(now: datetime) -> str:
     from idx.pipelines.cleanup import run_cleanup
 
@@ -207,6 +261,7 @@ def default_jobs() -> list[Job]:
         ),
         Job("prices", DailyAt(_env_time("WORKER_PRICES_AT", "18:30")), job_prices),
         Job("screen", DailyAt(_env_time("WORKER_SCREEN_AT", "19:00")), job_screen),
+        Job("brokerflow", DailyAt(_env_time("WORKER_BROKERFLOW_AT", "19:30")), job_brokerflow),
         Job(
             "dossiers",
             DailyAt(_env_time("WORKER_DOSSIERS_AT", "20:00"), retry_minutes=60),

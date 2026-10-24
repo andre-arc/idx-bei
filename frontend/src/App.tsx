@@ -14,6 +14,7 @@ const BacktesterTab = lazy(() => import('./components/BacktesterTab').then(m => 
 const IngestionTab = lazy(() => import('./components/IngestionTab').then(m => ({ default: m.IngestionTab })));
 const DealsTab = lazy(() => import('./components/DealsTab').then(m => ({ default: m.DealsTab })));
 const RightsIssueTab = lazy(() => import('./components/RightsIssueTab').then(m => ({ default: m.RightsIssueTab })));
+const BrokerFlowTab = lazy(() => import('./components/BrokerFlowTab').then(m => ({ default: m.BrokerFlowTab })));
 const LeadsTab = lazy(() => import('./components/LeadsTab').then(m => ({ default: m.LeadsTab })));
 const MomentumTab = lazy(() => import('./components/MomentumTab').then(m => ({ default: m.MomentumTab })));
 const InvestorMemoModal = lazy(() => import('./components/InvestorMemoModal').then(m => ({ default: m.InvestorMemoModal })));
@@ -49,7 +50,7 @@ function parseRouteFromUrl(): { tab: TabType; ticker: string } {
   if (hash) {
     const [hashPath, hashQuery] = hash.split('?');
     if (hashPath) {
-      if (['opportunities', 'terminal', 'power_map', 'simulator', 'leads', 'deals', 'rights', 'momentum', 'ingestion'].includes(hashPath)) {
+      if (['opportunities', 'terminal', 'power_map', 'simulator', 'leads', 'deals', 'rights', 'momentum', 'brokerflow', 'ingestion'].includes(hashPath)) {
         tabParam = hashPath as TabType;
       } else if (/^[A-Za-z0-9]{4,5}$/.test(hashPath)) {
         tabParam = 'terminal';
@@ -64,7 +65,7 @@ function parseRouteFromUrl(): { tab: TabType; ticker: string } {
     }
   }
 
-  const validTabs: TabType[] = ['opportunities', 'terminal', 'power_map', 'simulator', 'leads', 'deals', 'rights', 'momentum', 'ingestion'];
+  const validTabs: TabType[] = ['opportunities', 'terminal', 'power_map', 'simulator', 'leads', 'deals', 'rights', 'momentum', 'brokerflow', 'ingestion'];
   const tab = tabParam && validTabs.includes(tabParam) ? tabParam : 'opportunities';
   const ticker = (tickerParam || 'BBCA').toUpperCase();
 
@@ -98,6 +99,8 @@ function syncRouteToUrl(tab: TabType, ticker: string, replace = false) {
     document.title = 'Rights Issue Tracker • IDX Smart Money';
   } else if (tab === 'momentum') {
     document.title = 'Momentum Rank Board • IDX Smart Money';
+  } else if (tab === 'brokerflow') {
+    document.title = 'Broker Flow • IDX Smart Money';
   }
 
   if (window.location.hash !== newHash) {
@@ -298,6 +301,13 @@ export const App: React.FC = () => {
             {/* Price momentum rank board: tracked deals / raises and the market's top stocks */}
             {activeTab === 'momentum' && (
               <MomentumTab
+                onSelectStock={handleSelectStock}
+              />
+            )}
+
+            {/* Broker positions per stock from the user's own API key (cached daily) */}
+            {activeTab === 'brokerflow' && (
+              <BrokerFlowTab
                 onSelectStock={handleSelectStock}
               />
             )}

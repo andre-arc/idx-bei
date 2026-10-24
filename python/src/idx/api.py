@@ -525,6 +525,45 @@ async def get_leads():
     return res
 
 
+@app.get("/api/brokerflow/status", tags=["Broker Flow"])
+async def get_brokerflow_status():
+    """Configured provider (BYOK), today's request usage vs the daily cap, and cached stocks."""
+    from idx import brokerflow
+
+    return await asyncio.to_thread(brokerflow.status)
+
+
+@app.get("/api/brokerflow/{ticker}", tags=["Broker Flow"])
+async def get_brokerflow_positions(
+    ticker: str,
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
+    recent: int = Query(5, ge=1, le=60),
+):
+    """Broker positions for one stock from cached data only (no provider requests)."""
+    from idx import brokerflow
+
+    return await asyncio.to_thread(brokerflow.positions, ticker, date_from, date_to, recent)
+
+
+@app.post("/api/brokerflow/{ticker}/fetch", tags=["Broker Flow"])
+async def post_brokerflow_fetch(
+    ticker: str,
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
+    dry_run: bool = Query(False),
+):
+    """Fetch missing days into the cache with the user's own API key (spends their quota)."""
+    from idx import brokerflow
+
+    try:
+        res = await asyncio.to_thread(brokerflow.fetch, ticker, date_from, date_to, dry_run=dry_run)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    res.pop("windows", None)
+    return res
+
+
 @app.get("/api/rights-pipeline", tags=["Deals"])
 async def get_rights_pipeline():
     """Tracked capital raises (data/rights.json): planned, ongoing and recent rights issues / placements."""

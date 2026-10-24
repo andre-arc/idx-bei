@@ -7,7 +7,8 @@ export type TabType =
   | 'leads'
   | 'deals'
   | 'rights'
-  | 'momentum';
+  | 'momentum'
+  | 'brokerflow';
 
 export interface DatasetTimeseriesMeta {
   total_dates: number;
@@ -629,4 +630,83 @@ export interface TrackedRaise {
 export interface RightsPipelineResponse {
   updated_at: string | null;
   rights: TrackedRaise[];
+}
+
+// ---------- Broker flow (bring your own API key) ----------
+
+export type BrokerStatus =
+  | 'fresh_accum'
+  | 'avg_down'
+  | 'avg_up'
+  | 'trim'
+  | 'cut_loss'
+  | 'exit'
+  | 'distribute'
+  | 'cover'
+  | 'hold'
+  | 'inactive';
+
+export interface BrokerPosition {
+  broker: string;
+  status: BrokerStatus;
+  position: number;
+  position_value: number;
+  avg_cost: number | null;
+  floating_pl: number;
+  floating_pct: number | null;
+  realized_pl: number;
+  total_pl: number;
+  buy_shares: number;
+  sell_shares: number;
+  buy_avg: number | null;
+  sell_avg: number | null;
+  net_value: number;
+  recent_net_shares: number;
+  foreign_net_value: number | null;
+  active_days: number;
+  first_day: string;
+  last_day: string;
+  share_of_volume: number;
+}
+
+export interface BrokerFlowPlan {
+  stock: string;
+  trading_days: number;
+  cached: number;
+  missing: number;
+  requests: number;
+}
+
+export interface BrokerFlowResponse {
+  stock: string;
+  from?: string;
+  to?: string;
+  days: number;
+  recent_days?: number;
+  close?: number;
+  first_close?: number;
+  status_counts: Partial<Record<BrokerStatus, number>>;
+  net_long_value?: number;
+  long_avg_cost?: number | null;
+  foreign?: boolean;
+  adjustment_events?: { date: string; factor: number }[];
+  brokers: BrokerPosition[];
+  range: { from: string; to: string };
+  plan: BrokerFlowPlan | null;
+}
+
+export interface BrokerFlowStatus {
+  provider: string | null;
+  configured: boolean;
+  daily_cap: number;
+  usage: { day: string; today: number; month: number; by_provider: Record<string, number> };
+  stocks: { stock: string; days: number; first: string; last: string }[];
+}
+
+export interface BrokerFlowFetchResult extends BrokerFlowPlan {
+  provider: string;
+  fetched_days: number;
+  rows: number;
+  stopped: string | null;
+  requests_made?: number;
 }

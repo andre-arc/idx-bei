@@ -1,4 +1,7 @@
 import type {
+  BrokerFlowFetchResult,
+  BrokerFlowResponse,
+  BrokerFlowStatus,
   CorporateActionItem,
   DashboardData,
   DealsResponse,
@@ -244,3 +247,30 @@ export async function triggerIngestion(params: {
 
 
 
+
+export async function fetchBrokerFlowStatus(): Promise<BrokerFlowStatus> {
+  const resp = await fetch('/api/brokerflow/status');
+  if (!resp.ok) {
+    throw new Error('Failed to fetch broker-flow status');
+  }
+  return await resp.json();
+}
+
+export async function fetchBrokerPositions(ticker: string, from: string, to: string, recent: number): Promise<BrokerFlowResponse> {
+  const q = new URLSearchParams({ from, to, recent: String(recent) });
+  const resp = await fetch(`/api/brokerflow/${encodeURIComponent(ticker)}?${q}`);
+  if (!resp.ok) {
+    throw new Error(`Failed to load broker flow for ${ticker}`);
+  }
+  return await resp.json();
+}
+
+export async function runBrokerFlowFetch(ticker: string, from: string, to: string, dryRun = false): Promise<BrokerFlowFetchResult> {
+  const q = new URLSearchParams({ from, to, dry_run: String(dryRun) });
+  const resp = await fetch(`/api/brokerflow/${encodeURIComponent(ticker)}/fetch?${q}`, { method: 'POST' });
+  const body = await resp.json();
+  if (!resp.ok) {
+    throw new Error(body.detail ?? 'Fetch failed');
+  }
+  return body;
+}
