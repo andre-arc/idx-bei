@@ -10,13 +10,15 @@ import logging
 import pandas as pd
 
 from idx.core.query import available_datasets, query_dataset
+from idx.pipelines.announcements import MA_KEYWORDS
+from idx.pipelines.announcements import collect as collect_announcements
 from idx.pipelines.daily import ingest_daily
 from idx.pipelines.parquet import export_all as export_all_parquet
 from idx.scrapers.company import fetch_company_profiles
 from idx.scrapers.corporate import fetch_corporate_actions
 from idx.scrapers.financial import fetch_financial_ratios
 from idx.scrapers.members import fetch_broker_search
-from idx.scrapers.news import fetch_all_announcements, fetch_news_search
+from idx.scrapers.news import fetch_news_search
 from idx.scrapers.trading import fetch_broker_summary, fetch_index_summary, fetch_stock_summary
 from idx.signals import build_briefing
 
@@ -73,7 +75,78 @@ def build_parser():
 
     sub.add_parser("trading", help="Scrape stock summary (OHLCV), index summary & broker flow")
     sub.add_parser("news", help="Scrape market news & headlines")
-    sub.add_parser("announcements", help="Scrape company announcements & PDF filings")
+    p_ann = sub.add_parser(
+        "announcements",
+        help="Collect company announcements & PDF filings into data/announcements/",
+    )
+    p_ann.add_argument("--keywords", default="", help="Keyword filter (e.g. pengambilalihan)")
+    p_ann.add_argument(
+        "--ma",
+        action="store_true",
+        help="Run once per M&A / rights-issue keyword (takeover, tender offer, HMETD, ...)",
+    )
+    p_ann.add_argument(
+        "--from",
+        dest="date_from",
+        metavar="DATE",
+        help="Backfill from date (YYYY-MM-DD or YYYYMMDD); omit for incremental",
+    )
+    p_ann.add_argument("--to", dest="date_to", metavar="DATE", help="Backfill end date (inclusive)")
+    p_ann.add_argument("--max-pages", type=int, default=None, help="Stop after N pages per keyword")
+    p_ann.add_argument(
+        "--no-download", action="store_true", help="Store items only, skip PDF downloads"
+    )
+
+    p_dossier = sub.add_parser(
+        "dossier",
+        help="Compact evidence digest of a ticker's filings (deal terms, ownership changes)",
+    )
+    p_dossier.add_argument("ticker", help="Stock code, e.g. KDTN")
+    p_dossier.add_argument(
+        "--from", dest="date_from", default="2025-01-01", metavar="DATE", help="Start date"
+    )
+    p_dossier.add_argument(
+        "--max-chars", type=int, default=20000, help="Size budget for the digest (chars)"
+    )
+    p_dossier.add_argument("--no-fetch", action="store_true", help="Use stored announcements only")
+    p_dossier.add_argument("--no-ocr", action="store_true", help="Skip OCR of scanned PDFs")
+
+    p_screen = sub.add_parser(
+        "screen",
+        help="Rank all tickers for M&A / backdoor and capital-raising signals in filing titles",
+    )
+    p_screen.add_argument("--from", dest="date_from", default="2025-01-01", metavar="DATE")
+    p_screen.add_argument("--to", dest="date_to", default=None, metavar="DATE")
+    p_screen.add_argument("--top", type=int, default=40, help="Rows per list")
+    p_screen.add_argument(
+        "--no-fetch", action="store_true", help="Screen stored filings only (skip update)"
+    )
+
+    p_worker = sub.add_parser(
+        "worker",
+        help="Scheduled worker: announcements, prices, screen and dossiers (Asia/Jakarta time)",
+    )
+    p_worker.add_argument(
+        "--once",
+        nargs="+",
+        metavar="JOB",
+        help="Run these jobs now and exit (announcements, prices, screen, dossiers, cleanup)",
+    )
+    p_worker.add_argument("--status", action="store_true", help="Print job status and exit")
+
+    p_cleanup = sub.add_parser(
+        "cleanup",
+        help="Compress closed months, prune old PDFs/outputs, trim logs (dry run unless --apply)",
+    )
+    p_cleanup.add_argument(
+        "--apply", action="store_true", help="Make the changes (default: dry run)"
+    )
+    p_cleanup.add_argument("--pdf-days", type=int, default=90, help="Keep PDFs younger than this")
+    p_cleanup.add_argument(
+        "--keep", type=int, default=7, help="Digests/screens kept per ticker/kind"
+    )
+    p_cleanup.add_argument("--log-lines", type=int, default=5000, help="Lines kept per run log")
+    p_cleanup.add_argument("--list", action="store_true", help="List every action")
 
     # 3. Backfill
     p_backfill = sub.add_parser("backfill", help="Historical OHLCV backfill over a date range")
@@ -354,8 +427,80 @@ def main(argv=None):
         print("--- Scraping News Search ---")
         fetch_news_search()
     elif cmd == "announcements":
-        print("--- Scraping Company Announcements ---")
-        fetch_all_announcements()
+        print("--- Collecting Company Announcements ---")
+        keyword_list = MA_KEYWORDS if args.ma else [args.keywords]
+        failed = 0
+        for kw in keyword_list:
+            res = collect_announcements(
+                keywords=kw,
+                date_from=args.date_from,
+                date_to=args.date_to,
+                max_pages=args.max_pages,
+                download=not args.no_download,
+            )
+            print(
+                f"  [{res.status}] keywords={kw!r} mode={res.mode} pages={res.pages} "
+                f"new={res.new_items} pdfs={res.attachments_downloaded} "
+                f"schema_warnings={len(res.schema_warnings)}"
+            )
+            failed += res.status == "failed"
+        if failed:
+            raise SystemExit(1)
+    elif cmd == "cleanup":
+        from idx.pipelines.cleanup import run_cleanup
+
+        rep = run_cleanup(
+            apply=args.apply,
+            pdf_days=args.pdf_days,
+            keep_outputs=args.keep,
+            log_lines=args.log_lines,
+        )
+        shown = rep.actions if args.list else rep.actions[:15]
+        for a in shown:
+            print("  " + a)
+        if len(rep.actions) > len(shown):
+            print(f"  ... {len(rep.actions) - len(shown)} more (use --list)")
+        print(rep.summary())
+    elif cmd == "worker":
+        from idx import worker
+
+        if args.status or args.once:
+            state = worker.run_once(args.once) if args.once else worker.load_state()
+            for name, e in state.get("jobs", {}).items():
+                flag = " ALERT" if e.get("alert") else ""
+                print(
+                    f"{name:14} {e.get('status', '-'):7}{flag} last run {e.get('last_run', '-')} "
+                    f"({e.get('duration_s', '-')}s): {e.get('message', '')}"
+                )
+            if args.once and any(state["jobs"][n].get("status") == "failed" for n in args.once):
+                raise SystemExit(1)
+        else:
+            worker.run_forever()
+    elif cmd == "screen":
+        from idx.pipelines.screen import build_screen
+
+        print(
+            build_screen(
+                date_from=args.date_from,
+                date_to=args.date_to,
+                top=args.top,
+                fetch=not args.no_fetch,
+            )
+        )
+    elif cmd == "dossier":
+        import idx.pipelines.dossier as dossier_mod
+        from idx.pipelines.dossier import build_dossier
+
+        dossier_mod.OCR_ENABLED = not args.no_ocr
+
+        print(
+            build_dossier(
+                args.ticker,
+                date_from=args.date_from,
+                max_chars=args.max_chars,
+                fetch=not args.no_fetch,
+            )
+        )
     elif cmd == "backfill":
         print(
             f"=== Historical Backfill: {args.start} → {args.end} (type={args.type}, concurrency={args.concurrency}, delay={args.delay}s) ==="
@@ -829,7 +974,7 @@ def main(argv=None):
         fetch_broker_summary()
         fetch_index_summary()
         fetch_news_search()
-        fetch_all_announcements()
+        collect_announcements()
 
 
 if __name__ == "__main__":

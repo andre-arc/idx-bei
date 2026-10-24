@@ -1,4 +1,60 @@
-import type { DashboardData } from '../types';
+import type {
+  CorporateActionItem,
+  DashboardData,
+  DealsResponse,
+  MomentumBoard,
+  RightsIssuesResponse,
+  RightsPipelineResponse,
+  WorkerStatus,
+} from '../types';
+
+export async function fetchWorkerStatus(runs = 10): Promise<WorkerStatus> {
+  const resp = await fetch(`/api/system/worker?runs=${runs}`);
+  if (!resp.ok) {
+    throw new Error('Failed to fetch worker status');
+  }
+  return await resp.json();
+}
+
+export async function fetchMomentumBoard(top = 30): Promise<MomentumBoard> {
+  const resp = await fetch(`/api/momentum/board?top=${top}`);
+  if (!resp.ok) {
+    throw new Error('Failed to fetch momentum board');
+  }
+  return await resp.json();
+}
+
+export async function fetchDeals(): Promise<DealsResponse> {
+  const resp = await fetch('/api/deals');
+  if (!resp.ok) {
+    throw new Error('Failed to fetch deals');
+  }
+  return await resp.json();
+}
+
+export async function fetchRightsPipeline(): Promise<RightsPipelineResponse> {
+  const resp = await fetch('/api/rights-pipeline');
+  if (!resp.ok) {
+    throw new Error('Failed to fetch tracked capital raises');
+  }
+  return await resp.json();
+}
+
+export async function fetchRightsIssues(): Promise<RightsIssuesResponse> {
+  const resp = await fetch('/api/rights-issues');
+  if (!resp.ok) {
+    throw new Error('Failed to fetch rights issues');
+  }
+  return await resp.json();
+}
+
+export async function fetchCorporateActions(ticker: string): Promise<CorporateActionItem[]> {
+  const resp = await fetch(`/api/corporate-actions/${ticker.toUpperCase()}`);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch corporate actions for ${ticker}`);
+  }
+  return await resp.json();
+}
 
 export async function fetchDashboardData(): Promise<DashboardData> {
   // Check if loaded via window script tag fallback (supports uppercase and camelCase)

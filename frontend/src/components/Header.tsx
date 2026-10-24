@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, CandlestickChart, Network, PlayCircle, Database, Star, Bell } from 'lucide-react';
+import { Compass, CandlestickChart, Network, PlayCircle, Database, Star, Bell, Handshake, Layers, TrendingUp } from 'lucide-react';
 import type { TabType } from '../types';
 
 interface HeaderProps {
@@ -26,6 +26,9 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'terminal', label: 'Stock Terminal', icon: CandlestickChart },
     { id: 'power_map', label: 'Tycoons & Power Map', icon: Network },
     { id: 'simulator', label: 'Strategy Simulator', icon: PlayCircle },
+    { id: 'deals', label: 'Deal Tracker', icon: Handshake },
+    { id: 'rights', label: 'Rights Issues', icon: Layers },
+    { id: 'momentum', label: 'Momentum', icon: TrendingUp },
     { id: 'ingestion', label: 'Data Ingestion', icon: Database },
   ];
 
@@ -67,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* 4 Clean Pillars */}
-      <nav style={{ display: 'flex', gap: '0.5rem' }}>
+      <nav style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

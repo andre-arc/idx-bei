@@ -3,7 +3,10 @@ export type TabType =
   | 'terminal'
   | 'power_map'
   | 'simulator'
-  | 'ingestion';
+  | 'ingestion'
+  | 'deals'
+  | 'rights'
+  | 'momentum';
 
 export interface DatasetTimeseriesMeta {
   total_dates: number;
@@ -371,4 +374,224 @@ export interface LiveAlert {
   title: string;
   message: string;
   timestamp: string;
+}
+
+// --- Corporate actions & rights issues (Python API: idx/deals.py) ---
+export interface CorporateActionItem {
+  category: string;
+  listing_date: string;
+  shares: number;
+  shares_after: number;
+}
+
+export type CapitalRaiseType = 'rights_issue' | 'private_placement';
+
+export interface CapitalRaise {
+  id: number;
+  ticker: string;
+  type: CapitalRaiseType;
+  listing_date: string; // first listing of the new shares
+  last_listing_date: string; // last batch, when IDX lists the issue in several batches
+  tranches: number;
+  new_shares: number;
+  shares_after: number;
+  shares_before: number;
+  dilution_pct: number; // new ÷ after
+  size_vs_old_pct: number; // new ÷ before
+  raises_in_36m: number; // rights issues + private placements by this ticker in the 36 months up to this one
+  flags: string[];
+}
+
+// --- Scheduled worker (Python: idx/worker.py) ---
+export interface WorkerJobState {
+  status?: 'ok' | 'failed';
+  last_run?: string;
+  last_ok?: string;
+  duration_s?: number;
+  message?: string;
+  schedule?: string;
+  consecutive_failures?: number;
+  alert?: boolean;
+}
+
+export interface WorkerStatus {
+  started_at?: string;
+  updated_at?: string;
+  stale: boolean;
+  schedules?: Record<string, string>;
+  jobs: Record<string, WorkerJobState>;
+  recent_runs: (WorkerJobState & { job: string })[];
+}
+
+// --- Momentum rank board (Python API: idx/momentum.py) ---
+export interface MomentumRow {
+  code: string;
+  no_price?: boolean;
+  score?: number;
+  market_rank?: number;
+  close?: number;
+  r1M?: number | null;
+  r3M?: number | null;
+  r6M?: number | null;
+  r12M?: number | null;
+  xs3M?: number | null;
+  from_high?: number;
+  above_ma20?: boolean;
+  above_ma50?: boolean;
+  value_20_60?: number | null;
+  avg_value_20d?: number;
+  adj_warning?: boolean;
+  last_adjustment?: { date: string; factor: number } | null;
+  context?: string;
+  deal_score?: number | null;
+  screen_score?: number;
+  last_signal?: string;
+}
+
+export interface MomentumGroup {
+  key: string;
+  title: string;
+  rows: MomentumRow[];
+}
+
+export interface MomentumBoard {
+  market: {
+    as_of: string | null;
+    first_date: string | null;
+    trading_days: number;
+    universe: number;
+    ihsg: Record<string, number | null>;
+  } | null;
+  screen_period: string | null;
+  groups: MomentumGroup[];
+  error?: string;
+}
+
+export interface RightsIssuesResponse {
+  flag_labels: Record<string, string>;
+  raises: CapitalRaise[];
+}
+
+// --- Deal tracker (data/deals.json, plan §3.1–3.5 / §6) ---
+export type DealStage =
+  | 'rumour'
+  | 'negotiation'
+  | 'takeover'
+  | 'tender_offer'
+  | 'free_float'
+  | 'business_change'
+  | 'asset_injection'
+  | 'aftermath';
+
+export type DealType = 'acquisition' | 'backdoor_candidate' | 'tender_offer' | 'merger' | 'going_private';
+export type DealStatus = 'active' | 'completed' | 'cancelled' | 'lapsed';
+export type ReviewStatus = 'auto' | 'approved' | 'pending';
+
+export interface DealEvent {
+  stage: DealStage;
+  event_type: string;
+  event_date: string;
+  title: string;
+  source_url?: string;
+  source_type: 'official' | 'news' | 'rumour';
+  stake_pct?: number;
+  shares?: number;
+  price?: number;
+  value?: number;
+  tender_price?: number;
+  tender_start?: string;
+  tender_end?: string;
+  notes?: string;
+  confidence?: number;
+  review_status?: ReviewStatus;
+}
+
+export interface BackdoorSignals {
+  control_change?: boolean;
+  different_sector?: boolean;
+  shell_like_target?: boolean;
+  business_change_plan?: boolean;
+  large_capital_injection?: boolean;
+  jumbo_ng_trades?: boolean;
+  price_spike?: boolean;
+}
+
+export interface Deal {
+  id: string;
+  target_ticker: string;
+  target_name?: string;
+  deal_type: DealType;
+  status: DealStatus;
+  current_stage: DealStage;
+  acquirer?: string;
+  acquirer_group?: string;
+  sellers?: string[];
+  advisors?: string[];
+  pre_announcement_price?: number;
+  first_signal_at?: string;
+  announced_at?: string;
+  completed_at?: string;
+  signals?: BackdoorSignals;
+  events: DealEvent[];
+  // Added by the API
+  backdoor: BackdoorScore;
+  tender_premium_pct: number | null;
+  last_event_date: string;
+  pending_review: number;
+}
+
+export interface BackdoorScore {
+  score: number;
+  label: string;
+  signals: { key: keyof BackdoorSignals; label: string; weight: number; fired: boolean }[];
+}
+
+export interface DealsResponse {
+  updated_at: string | null;
+  deals: Deal[];
+}
+
+// Tracked capital raises (data/rights.json)
+export type RaiseStage = 'plan' | 'egm' | 'registration' | 'effective' | 'trading' | 'listed';
+export type RaiseStatus = 'watch' | 'active' | 'completed' | 'cancelled';
+
+export interface RaiseEvent extends Omit<DealEvent, 'stage'> {
+  stage: RaiseStage;
+}
+
+export interface TrackedRaise {
+  id: string;
+  ticker: string;
+  name?: string;
+  type: CapitalRaiseType;
+  status: RaiseStatus;
+  stage: RaiseStage;
+  linked_deal?: string | null;
+  announced_at?: string;
+  terms?: {
+    ratio_old?: number;
+    ratio_new?: number;
+    exercise_price?: number;
+    max_new_shares?: number;
+    max_value?: number;
+    cum_price?: number;
+    standby_buyer?: string | null;
+    in_kind?: string;
+    par_value?: number;
+    shares_before?: number;
+    authorised_after?: number;
+  };
+  key_dates?: Record<string, string>;
+  notes?: string;
+  events: RaiseEvent[];
+  // Added by the API
+  new_per_old: number | null;
+  terp: number | null;
+  last_event_date: string;
+  pending_review: number;
+}
+
+export interface RightsPipelineResponse {
+  updated_at: string | null;
+  rights: TrackedRaise[];
 }
