@@ -107,7 +107,8 @@ export const DealsTab: React.FC<DealsTabProps> = ({ onSelectStock, onOpenRights 
           <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>Acquisition & Backdoor Listing Tracker</h2>
         </div>
         <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-          Takeovers, changes of control, tender offers and backdoor-listing patterns on IDX, with a timeline and source for every event.
+          The deals you follow (hand-picked in <code>data/deals.json</code>): takeovers, changes of control, tender offers and backdoor-listing
+          patterns, with a timeline and source for every event. Potential deals found automatically are on the Leads tab.
         </p>
       </div>
 

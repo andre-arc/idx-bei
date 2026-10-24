@@ -90,33 +90,12 @@ def test_build_board_groups_and_json_safe():
             "status": "active",
         },
     ]
-    screen = {
-        "date_from": "2025-01-01",
-        "date_to": "2026-10-23",
-        "candidates": [
-            {
-                "ticker": "FLAT",
-                "signals": ["CC", "TO"],
-                "stage": "tender offer",
-                "score_ma": 8,
-                "score_capital": 0,
-                "last": "2026-10-01",
-            },
-            {
-                "ticker": "UPUP",
-                "signals": ["RI"],
-                "stage": "",
-                "score_ma": 0,
-                "score_capital": 4,
-                "last": "2026-09-01",
-            },
-        ],
-    }
     rights = [{"ticker": "DOWN", "type": "rights_issue", "stage": "plan", "status": "watch"}]
-    board = build_board(m, market, deals, screen, top=10, rights=rights)
+    board = build_board(m, market, deals, rights, top=2)
     json.dumps(board)  # numpy types converted
 
     groups = {g["key"]: g for g in board["groups"]}
+    assert list(groups) == ["deals", "rights", "market"]
     assert [r["code"] for r in groups["rights"]["rows"]] == ["DOWN"]
     assert groups["rights"]["rows"][0]["context"] == "rights_issue · plan · watch"
     assert [r["code"] for r in groups["deals"]["rows"]] == [
@@ -124,10 +103,10 @@ def test_build_board_groups_and_json_safe():
         "GONE",
     ]  # no-price rows sort last
     assert groups["deals"]["rows"][0]["deal_score"] == 40 and groups["deals"]["rows"][1]["no_price"]
-    assert [r["code"] for r in groups["screen_ma"]["rows"]] == ["FLAT"]
-    assert groups["screen_ma"]["rows"][0]["context"] == "CC TO · tender offer"
-    assert [r["code"] for r in groups["screen_capital"]["rows"]] == ["UPUP"]
-    assert board["screen_period"] == "2025-01-01..2026-10-23"
+    market_rows = groups["market"]["rows"]
+    assert groups["market"]["title"] == "Market top 2"
+    assert len(market_rows) == 2 and market_rows[0]["code"] == "UPUP"
+    assert market_rows[0]["score"] >= market_rows[1]["score"]
 
 
 def test_momentum_endpoint(monkeypatch):
@@ -136,7 +115,7 @@ def test_momentum_endpoint(monkeypatch):
 
     def fake_load_board(deals, top, rights=None):
         calls.append(top)
-        return {"market": {"as_of": "2026-10-22"}, "screen_period": None, "groups": []}
+        return {"market": {"as_of": "2026-10-22"}, "groups": []}
 
     monkeypatch.setattr(momentum, "load_board", fake_load_board)
     client = TestClient(app)

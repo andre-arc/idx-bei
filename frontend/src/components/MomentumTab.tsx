@@ -43,12 +43,12 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
   }, []);
 
   const group = board?.groups.find((g) => g.key === groupKey) ?? board?.groups[0];
-  const refLabel = groupKey === 'deals' ? 'Deal BD' : 'Screen';
+  const showDealScore = group?.key === 'deals';
 
   const rows = useMemo(() => {
     const q = query.trim().toUpperCase();
     const val = (r: MomentumRow): number => {
-      const v = sortKey === 'ref' ? (r.deal_score ?? r.screen_score) : r[sortKey];
+      const v = sortKey === 'ref' ? r.deal_score : r[sortKey];
       return v == null ? Number.NEGATIVE_INFINITY : v;
     };
     return (group?.rows ?? [])
@@ -104,7 +104,8 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
             <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700 }}>Momentum Rank Board</h2>
           </div>
           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Deal and screen candidates ranked by price momentum against all {mkt.universe} IDX stocks.
+            Tracked deals and capital raises, and the market's leaders, ranked by price momentum against all {mkt.universe} IDX stocks.
+            Potential deals are on the Leads tab.
           </p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: '0.25rem 1.25rem', fontSize: '0.8rem', alignItems: 'baseline' }}>
@@ -141,7 +142,7 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
         <input
           className="form-control"
           style={{ maxWidth: '220px', paddingLeft: '1rem', marginLeft: 'auto' }}
-          placeholder="Ticker or signal…"
+          placeholder="Ticker…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -166,7 +167,7 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
                 {th('MA20/50')}
                 {th('Value 20/60d', 'value_20_60')}
                 {th('Avg value (Rp bn)', 'avg_value_20d')}
-                {th(refLabel, 'ref')}
+                {showDealScore && th('Deal BD', 'ref')}
               </tr>
             </thead>
             <tbody>
@@ -206,7 +207,7 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
                         NO TRADES 20D
                       </span>
                     )}
-                    {(r.context || r.last_signal) && (
+                    {r.context && (
                       <div
                         title={r.context}
                         style={{
@@ -220,7 +221,6 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
                         }}
                       >
                         {r.context}
-                        {r.last_signal && ` · last ${r.last_signal}`}
                       </div>
                     )}
                   </td>
@@ -253,7 +253,7 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
                       <td className="numeric" style={{ textAlign: 'right' }}>{((r.avg_value_20d ?? 0) / 1e9).toFixed(1)}</td>
                     </>
                   )}
-                  <td className="numeric" style={{ textAlign: 'right' }}>{r.deal_score ?? r.screen_score ?? '—'}</td>
+                  {showDealScore && <td className="numeric" style={{ textAlign: 'right' }}>{r.deal_score ?? '—'}</td>}
                 </tr>
               ))}
               {rows.length === 0 && (
@@ -270,8 +270,7 @@ export const MomentumTab: React.FC<MomentumTabProps> = ({ onSelectStock }) => {
         <Info size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
         <span>
           Score = percentile among all IDX stocks: 20% 1M + 40% 3M + 40% 6M return. Closes are adjusted for splits and rights issues using IDX's
-          ex-date reference price (ADJ shows the latest ex-date); ADJ? marks a one-day move beyond 35% that the adjustment does not explain. Value 20/60d above 1.5× means rising trading interest. Screen candidates come from the latest
-          `idx screen` run{board.screen_period ? ` (${board.screen_period})` : ''}. Momentum describes past prices, not a forecast or advice.
+          ex-date reference price (ADJ shows the latest ex-date); ADJ? marks a one-day move beyond 35% that the adjustment does not explain. Value 20/60d above 1.5× means rising trading interest. Momentum describes past prices, not a forecast or advice.
         </span>
       </div>
     </div>

@@ -9,7 +9,7 @@ Jobs (defaults, overridable with env vars):
 - ``announcements``  every 10 min on trading days 06:00–23:00, hourly otherwise — incremental collection of the
   full announcement feed (titles only). After 3 consecutive failures the job is flagged ``alert``.
 - ``prices``         18:30 on trading days, retried every 30 min until 23:00 — stock / broker / index summary.
-- ``screen``         19:00 on trading days — rebuild the title screen (feeds the momentum board).
+- ``screen``         19:00 on trading days — rebuild the title screen (feeds the leads list).
 - ``dossiers``       20:00 on trading days — refresh digests of active Deal Tracker tickers.
 - ``cleanup``        Sundays 03:00 — retention and compaction (``idx cleanup --apply``, see pipelines/cleanup.py).
 

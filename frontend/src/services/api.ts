@@ -2,6 +2,7 @@ import type {
   CorporateActionItem,
   DashboardData,
   DealsResponse,
+  LeadsResponse,
   MomentumBoard,
   RightsIssuesResponse,
   RightsPipelineResponse,
@@ -28,6 +29,14 @@ export async function fetchDeals(): Promise<DealsResponse> {
   const resp = await fetch('/api/deals');
   if (!resp.ok) {
     throw new Error('Failed to fetch deals');
+  }
+  return await resp.json();
+}
+
+export async function fetchLeads(): Promise<LeadsResponse> {
+  const resp = await fetch('/api/leads');
+  if (!resp.ok) {
+    throw new Error('Failed to fetch leads');
   }
   return await resp.json();
 }

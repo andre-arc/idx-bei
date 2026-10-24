@@ -1,5 +1,5 @@
 """
-Price momentum rank board for deal and screen candidates.
+Price momentum rank board: tracked deals and capital raises, plus the market's top stocks.
 
 Momentum is measured against the whole IDX market from the stored daily stock summary:
 
@@ -15,16 +15,12 @@ beyond IDX's widest auto-rejection band (35%) left after adjustment is not expla
 (e.g. a gap in the history), so such tickers are flagged ``adj_warning``.
 """
 
-import glob
-import json
-import os
 from typing import Any
 
 import pandas as pd
 
 from idx.core.adjust import adjusted_closes, adjustment_events
 from idx.core.timeseries import read_dataset
-from idx.core.utils import DATA_DIR
 
 WINDOWS = {"1M": 21, "3M": 63, "6M": 126, "12M": 250}
 WEIGHTS = {"1M": 0.2, "3M": 0.4, "6M": 0.4}
@@ -34,7 +30,6 @@ MAX_DAILY_MOVE = 0.355
 MIN_FLAG_PRICE = 50  # below Rp50 one tick is >2% and Rp1 → 2 is +100%: limits don't apply
 MIN_HISTORY = 30
 STALE_DAYS = 10  # last price older than this vs the market → suspended / not trading
-SCREENS_DIR = os.path.join(DATA_DIR, "screens")
 
 
 def _ret(s: pd.Series, n: int) -> float | None:
@@ -120,14 +115,6 @@ def compute_momentum(
     return m, market
 
 
-def latest_screen(screens_dir: str = SCREENS_DIR) -> dict | None:
-    files = sorted(glob.glob(os.path.join(screens_dir, "screen_*.json")), key=os.path.getmtime)
-    if not files:
-        return None
-    with open(files[-1], encoding="utf-8") as f:
-        return json.load(f)
-
-
 def _clean(v: Any) -> Any:
     """numpy scalar → plain Python (JSON-safe); NaN → None."""
     if hasattr(v, "item"):
@@ -135,90 +122,79 @@ def _clean(v: Any) -> Any:
     return None if isinstance(v, float) and pd.isna(v) else v
 
 
+def metric_row(metrics: pd.DataFrame, code: str) -> dict:
+    """One stock's momentum metrics as a JSON-safe dict (``no_price`` when it has no recent price)."""
+    if metrics.empty or code not in metrics.index:
+        return {"code": code, "no_price": True}
+    m = metrics.loc[code]
+    out = {k: _clean(m[k]) for k in metrics.columns if not k.startswith("p")}
+    out["score"] = round(float(m["score"]), 1)
+    return {"code": code, **out}
+
+
 def build_board(
     metrics: pd.DataFrame,
     market: dict,
     deals: list[dict],
-    screen: dict | None,
-    top: int = 30,
     rights: list[dict] | None = None,
+    top: int = 30,
 ) -> dict:
-    """Rank board groups: deal- and rights-tracker tickers and the screen's top M&A / capital candidates."""
+    """Rank board groups: deal-tracker tickers, rights-tracker tickers and the market's top ``top``.
 
-    def row(code: str, context: dict) -> dict:
-        if metrics.empty or code not in metrics.index:
-            return {"code": code, "no_price": True, **context}
-        m = metrics.loc[code]
-        out = {k: _clean(m[k]) for k in metrics.columns if not k.startswith("p")}
-        out["score"] = round(float(m["score"]), 1)
-        return {"code": code, **out, **context}
-
-    groups: list[dict[str, Any]] = []
-    deal_rows = [
-        row(
-            d["target_ticker"],
-            {
-                "context": f"{d.get('deal_type', '')} · {d.get('current_stage', '')} · {d.get('status', '')}",
-                "deal_score": (d.get("backdoor") or {}).get("score"),
-            },
-        )
-        for d in deals
-    ]
-    groups.append({"key": "deals", "title": "Deal tracker", "rows": deal_rows})
-    if rights:
-        rights_rows = [
-            row(
-                r["ticker"],
-                {"context": f"{r.get('type', '')} · {r.get('stage', '')} · {r.get('status', '')}"},
-            )
-            for r in rights
-        ]
-        groups.append({"key": "rights", "title": "Rights tracker", "rows": rights_rows})
-
-    if screen:
-        cands = screen.get("candidates", [])
-        for key, title, field in (
-            ("screen_ma", "Screen: M&A / backdoor", "score_ma"),
-            ("screen_capital", "Screen: capital raising", "score_capital"),
-        ):
-            picked = sorted((c for c in cands if c.get(field, 0) > 0), key=lambda c: -c[field])[
-                :top
-            ]
-            groups.append(
+    Screen candidates (potential deals) are not ranked here; they are on the leads list (idx.leads).
+    """
+    groups: list[dict[str, Any]] = [
+        {
+            "key": "deals",
+            "title": "Deal tracker",
+            "rows": [
                 {
-                    "key": key,
-                    "title": title,
-                    "rows": [
-                        row(
-                            c["ticker"],
-                            {
-                                "context": " ".join(c.get("signals", []))
-                                + (f" · {c['stage']}" if c.get("stage") else ""),
-                                "screen_score": c[field],
-                                "last_signal": c.get("last"),
-                            },
-                        )
-                        for c in picked
-                    ],
+                    **metric_row(metrics, d["target_ticker"]),
+                    "context": f"{d.get('deal_type', '')} · {d.get('current_stage', '')} · {d.get('status', '')}",
+                    "deal_score": (d.get("backdoor") or {}).get("score"),
                 }
-            )
+                for d in deals
+            ],
+        }
+    ]
+    if rights:
+        groups.append(
+            {
+                "key": "rights",
+                "title": "Rights tracker",
+                "rows": [
+                    {
+                        **metric_row(metrics, r["ticker"]),
+                        "context": f"{r.get('type', '')} · {r.get('stage', '')} · {r.get('status', '')}",
+                    }
+                    for r in rights
+                ],
+            }
+        )
+    if not metrics.empty:
+        best = metrics["score"].sort_values(ascending=False).index[:top]
+        groups.append(
+            {
+                "key": "market",
+                "title": f"Market top {top}",
+                "rows": [metric_row(metrics, c) for c in best],
+            }
+        )
     for g in groups:
         g["rows"].sort(key=lambda r: -(r.get("score") or -1))
-    return {
-        "market": market,
-        "screen_period": f"{screen['date_from']}..{screen['date_to']}" if screen else None,
-        "groups": groups,
-    }
+    return {"market": market, "groups": groups}
+
+
+def load_momentum() -> tuple[pd.DataFrame, dict | None]:
+    """Momentum metrics for every stock from the stored prices; (empty, None) without price data."""
+    prices = read_dataset("stock_summary")
+    if prices.empty:
+        return pd.DataFrame(), None
+    return compute_momentum(prices, read_dataset("index_summary"))
 
 
 def load_board(deals: list[dict], top: int = 30, rights: list[dict] | None = None) -> dict:
-    prices = read_dataset("stock_summary")
-    if prices.empty:
-        return {
-            "market": None,
-            "screen_period": None,
-            "groups": [],
-            "error": "no price data; run `idx backfill`",
-        }
-    metrics, market = compute_momentum(prices, read_dataset("index_summary"))
-    return build_board(metrics, market, deals, latest_screen(), top=top, rights=rights)
+    metrics, market = load_momentum()
+    if market is None:
+        return {"market": None, "groups": [], "error": "no price data; run `idx backfill`"}
+    return build_board(metrics, market, deals, rights, top=top)

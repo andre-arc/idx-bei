@@ -4,6 +4,7 @@ export type TabType =
   | 'power_map'
   | 'simulator'
   | 'ingestion'
+  | 'leads'
   | 'deals'
   | 'rights'
   | 'momentum';
@@ -444,8 +445,6 @@ export interface MomentumRow {
   last_adjustment?: { date: string; factor: number } | null;
   context?: string;
   deal_score?: number | null;
-  screen_score?: number;
-  last_signal?: string;
 }
 
 export interface MomentumGroup {
@@ -462,9 +461,45 @@ export interface MomentumBoard {
     universe: number;
     ihsg: Record<string, number | null>;
   } | null;
-  screen_period: string | null;
   groups: MomentumGroup[];
   error?: string;
+}
+
+// Leads: potential deals / capital raises from the title screen (GET /api/leads)
+export interface ScreenSignal {
+  label: string;
+  group: 'ma' | 'capital' | 'support';
+  weight: number;
+}
+
+export interface Lead {
+  ticker: string;
+  score_ma: number;
+  score_capital: number;
+  signals: string[];
+  stage: string | null;
+  first?: string;
+  last?: string;
+  filings?: number;
+  key_titles: [string, string, string][];
+  momentum: {
+    score: number;
+    close: number;
+    r1M: number | null;
+    r3M: number | null;
+    r6M: number | null;
+    from_high: number;
+    value_20_60: number | null;
+    avg_value_20d: number;
+  } | null;
+  tracked: ('deal' | 'rights')[];
+}
+
+export interface LeadsResponse {
+  screen: { date_from: string; date_to: string; filings_scanned: number } | null;
+  signals: Record<string, ScreenSignal>;
+  leads: Lead[];
+  prices_as_of: string | null;
 }
 
 export interface RightsIssuesResponse {
