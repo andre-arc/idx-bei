@@ -185,6 +185,32 @@ def test_get_provider(monkeypatch):
     assert providers.get_provider().name == "invezgo"
     monkeypatch.setenv("BROKERFLOW_PROVIDER", "sectors")
     assert providers.get_provider().name == "sectors"
+    assert providers.get_provider("invezgo").name == "invezgo"  # the user's choice wins
+    assert providers.configured_providers() == ["invezgo", "sectors"]
+    monkeypatch.delenv("SECTORS_API_KEY")
+    assert providers.default_provider() == "invezgo"  # preferred one has no key: fall back
+    assert providers.get_provider("sectors") is None
+
+
+def test_provider_choice_keeps_separate_caches(monkeypatch, tmp_path):
+    import idx.brokerflow as bf
+
+    monkeypatch.setattr(bf.cache, "CACHE_DIR", str(tmp_path))
+    for k in ("BROKERFLOW_PROVIDER", "INVEZGO_API_KEY", "SECTORS_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SECTORS_API_KEY", "s")
+    st = bf.status()
+    assert st["provider"] == "sectors" and st["configured"]
+    assert st["providers"] == [
+        {"name": "invezgo", "configured": False},
+        {"name": "sectors", "configured": True},
+    ]
+    assert bf.status("invezgo")["configured"] is False
+    assert bf.cache_dir("sectors") == str(tmp_path / "sectors")
+    with pytest.raises(ValueError):
+        bf.status("../etc")  # the name becomes a directory: only known providers
+    with pytest.raises(RuntimeError):
+        bf.fetch("BBCA", provider="invezgo", dry_run=True)
 
 
 # ---------- cache ----------
@@ -274,3 +300,20 @@ def test_worker_job_skips_without_key(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     assert worker.job_brokerflow(datetime(2026, 10, 23, 19, 30)).startswith("skipped")
     assert "brokerflow" in [j.name for j in worker.default_jobs()]
+
+
+def test_api_blocks_cross_site_writes(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from idx.api import app
+
+    for k in ("INVEZGO_API_KEY", "SECTORS_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    client = TestClient(app)
+    url = "/api/brokerflow/BBCA/fetch?dry_run=true"
+    assert client.post(url, headers={"Origin": "https://evil.example"}).status_code == 403
+    # same origin, the Vite dev proxy, and non-browser clients (no Origin) reach the endpoint
+    assert client.post(url, headers={"Origin": "http://testserver"}).status_code == 400
+    assert client.post(url, headers={"Origin": "http://localhost:5176"}).status_code == 400
+    assert client.post(url).status_code == 400
+    assert client.post(url + "&provider=../x").status_code == 400

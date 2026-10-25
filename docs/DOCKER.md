@@ -34,6 +34,8 @@ docker compose exec app uv run idx screen --no-fetch
 |---|---|---|
 | `IDX_DATA_DIR` | `./data` | Host folder mounted at `/app/data`. Keep it out of OneDrive/Dropbox, e.g. `D:/idx-data`. |
 | `APP_PORT` | `8000` | Dashboard / API port on the host |
+| `APP_BIND` | `127.0.0.1` | Host interface for the app and Neo4j ports; `0.0.0.0` exposes them to the network (the API has no login) |
+| `CORS_ORIGINS` | `http://localhost:5176,http://127.0.0.1:5176` | Browser origins besides the app itself that may call the API |
 | `IDX_IMAGE` | `idx-bei-app` | Image name shared by `app` and `worker` |
 | `NEO4J_IMAGE`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATA_DIR` | `neo4j:latest`, `neo4j`, `password`, `./neo4j_data` | Pin `NEO4J_IMAGE` once you have data |
 | `WORKER_ANN_MINUTES` / `WORKER_ANN_OFF_MINUTES` | `10` / `60` | Announcement polling on trading days 06:00–23:00 / otherwise |

@@ -8,10 +8,11 @@ import os
 import time
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -38,13 +39,35 @@ app = FastAPI(
     version="0.2.0",
 )
 
+# The dashboard is served from this app (same origin) or through the Vite dev proxy; other sites
+# must not read the local data or spend the user's API quota from the browser.
+_VITE_DEV = "http://localhost:5176,http://127.0.0.1:5176"
+CORS_ORIGINS = [
+    o.strip() for o in os.environ.get("CORS_ORIGINS", _VITE_DEV).split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def block_cross_site_writes(request: Request, call_next):
+    """CORS only hides responses; a cross-site form POST would still run. Reject writes from other origins."""
+    origin = request.headers.get("origin")
+    if (
+        request.method not in ("GET", "HEAD", "OPTIONS")
+        and origin
+        and origin not in CORS_ORIGINS
+        and urlparse(origin).netloc != request.headers.get("host")
+    ):
+        return JSONResponse({"detail": "cross-origin request blocked"}, status_code=403)
+    return await call_next(request)
+
 
 REPO_ROOT = os.path.abspath(os.path.join(DATA_DIR, ".."))
 DASHBOARD_DIR = os.path.join(REPO_ROOT, "dashboard")
@@ -526,11 +549,14 @@ async def get_leads():
 
 
 @app.get("/api/brokerflow/status", tags=["Broker Flow"])
-async def get_brokerflow_status():
-    """Configured provider (BYOK), today's request usage vs the daily cap, and cached stocks."""
+async def get_brokerflow_status(provider: str | None = Query(None)):
+    """Providers with a key (BYOK), and for the chosen one: requests today vs the cap, cached stocks."""
     from idx import brokerflow
 
-    return await asyncio.to_thread(brokerflow.status)
+    try:
+        return await asyncio.to_thread(brokerflow.status, provider)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/brokerflow/{ticker}", tags=["Broker Flow"])
@@ -539,11 +565,17 @@ async def get_brokerflow_positions(
     date_from: str | None = Query(None, alias="from"),
     date_to: str | None = Query(None, alias="to"),
     recent: int = Query(5, ge=1, le=60),
+    provider: str | None = Query(None),
 ):
-    """Broker positions for one stock from cached data only (no provider requests)."""
+    """Broker positions for one stock from the chosen provider's cache only (no provider requests)."""
     from idx import brokerflow
 
-    return await asyncio.to_thread(brokerflow.positions, ticker, date_from, date_to, recent)
+    try:
+        return await asyncio.to_thread(
+            brokerflow.positions, ticker, date_from, date_to, recent, provider
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.post("/api/brokerflow/{ticker}/fetch", tags=["Broker Flow"])
@@ -552,13 +584,16 @@ async def post_brokerflow_fetch(
     date_from: str | None = Query(None, alias="from"),
     date_to: str | None = Query(None, alias="to"),
     dry_run: bool = Query(False),
+    provider: str | None = Query(None),
 ):
     """Fetch missing days into the cache with the user's own API key (spends their quota)."""
     from idx import brokerflow
 
     try:
-        res = await asyncio.to_thread(brokerflow.fetch, ticker, date_from, date_to, dry_run=dry_run)
-    except RuntimeError as e:
+        res = await asyncio.to_thread(
+            brokerflow.fetch, ticker, date_from, date_to, dry_run=dry_run, provider=provider
+        )
+    except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     res.pop("windows", None)
     return res

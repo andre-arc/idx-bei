@@ -261,6 +261,12 @@ def build_parser():
     p_bf.add_argument("--refresh", action="store_true", help="Re-fetch cached days (fetch)")
     p_bf.add_argument("--recent", type=int, default=5, help="Trading days for the status")
     p_bf.add_argument("--top", type=int, default=20, help="Brokers to print (positions)")
+    p_bf.add_argument(
+        "--provider",
+        choices=["invezgo", "sectors"],
+        default=None,
+        help="Data source (default: BROKERFLOW_PROVIDER or the first key set)",
+    )
 
     # 7. Backtest
     p_bt = sub.add_parser("backtest", help="Vectorized backtesting of quantitative screens")
@@ -571,7 +577,7 @@ def main(argv=None):
         from idx import brokerflow
 
         if args.action == "status":
-            print(json.dumps(brokerflow.status(), indent=2))
+            print(json.dumps(brokerflow.status(args.provider), indent=2))
             return
         if not args.ticker:
             raise SystemExit("brokerflow fetch/positions needs a ticker")
@@ -582,11 +588,14 @@ def main(argv=None):
                 args.date_to,
                 dry_run=args.estimate,
                 refresh=args.refresh,
+                provider=args.provider,
             )
             res.pop("windows", None)
             print(json.dumps(res, indent=2))
             return
-        res = brokerflow.positions(args.ticker, args.date_from, args.date_to, args.recent)
+        res = brokerflow.positions(
+            args.ticker, args.date_from, args.date_to, args.recent, args.provider
+        )
         if not res["brokers"]:
             print(
                 f"No cached broker data for {res['stock']}; run: idx brokerflow fetch {res['stock']}"

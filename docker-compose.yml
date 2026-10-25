@@ -18,11 +18,13 @@ services:
     <<: *app
     container_name: idx-toolkit-app
     ports:
-      - "${APP_PORT:-8000}:8000"
+      # Localhost only: the API has no login. Set APP_BIND=0.0.0.0 to expose it on the network.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
     environment:
       - NEO4J_URI=${NEO4J_URI:-bolt://neo4j:7687}
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5176,http://127.0.0.1:5176}
       - INVEZGO_API_KEY=${INVEZGO_API_KEY:-}
       - SECTORS_API_KEY=${SECTORS_API_KEY:-}
       - BROKERFLOW_PROVIDER=${BROKERFLOW_PROVIDER:-}
@@ -68,6 +70,6 @@ services:
     environment:
       - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "${APP_BIND:-127.0.0.1}:7474:7474"
+      - "${APP_BIND:-127.0.0.1}:7687:7687"
     restart: unless-stopped

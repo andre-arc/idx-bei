@@ -248,16 +248,18 @@ export async function triggerIngestion(params: {
 
 
 
-export async function fetchBrokerFlowStatus(): Promise<BrokerFlowStatus> {
-  const resp = await fetch('/api/brokerflow/status');
+export async function fetchBrokerFlowStatus(provider?: string): Promise<BrokerFlowStatus> {
+  const q = provider ? `?${new URLSearchParams({ provider })}` : '';
+  const resp = await fetch(`/api/brokerflow/status${q}`);
   if (!resp.ok) {
     throw new Error('Failed to fetch broker-flow status');
   }
   return await resp.json();
 }
 
-export async function fetchBrokerPositions(ticker: string, from: string, to: string, recent: number): Promise<BrokerFlowResponse> {
+export async function fetchBrokerPositions(ticker: string, from: string, to: string, recent: number, provider?: string): Promise<BrokerFlowResponse> {
   const q = new URLSearchParams({ from, to, recent: String(recent) });
+  if (provider) q.set('provider', provider);
   const resp = await fetch(`/api/brokerflow/${encodeURIComponent(ticker)}?${q}`);
   if (!resp.ok) {
     throw new Error(`Failed to load broker flow for ${ticker}`);
@@ -265,8 +267,9 @@ export async function fetchBrokerPositions(ticker: string, from: string, to: str
   return await resp.json();
 }
 
-export async function runBrokerFlowFetch(ticker: string, from: string, to: string, dryRun = false): Promise<BrokerFlowFetchResult> {
+export async function runBrokerFlowFetch(ticker: string, from: string, to: string, dryRun = false, provider?: string): Promise<BrokerFlowFetchResult> {
   const q = new URLSearchParams({ from, to, dry_run: String(dryRun) });
+  if (provider) q.set('provider', provider);
   const resp = await fetch(`/api/brokerflow/${encodeURIComponent(ticker)}/fetch?${q}`, { method: 'POST' });
   const body = await resp.json();
   if (!resp.ok) {

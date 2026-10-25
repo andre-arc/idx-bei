@@ -679,6 +679,7 @@ export interface BrokerFlowPlan {
 
 export interface BrokerFlowResponse {
   stock: string;
+  provider?: string | null;
   from?: string;
   to?: string;
   days: number;
@@ -698,6 +699,7 @@ export interface BrokerFlowResponse {
 export interface BrokerFlowStatus {
   provider: string | null;
   configured: boolean;
+  providers: { name: string; configured: boolean }[];
   daily_cap: number;
   usage: { day: string; today: number; month: number; by_provider: Record<string, number> };
   stocks: { stock: string; days: number; first: string; last: string }[];

@@ -1,7 +1,7 @@
 """
 Local daily cache of broker summaries: each (stock, trading day) is requested from the provider once.
 
-Layout (``data/brokerflow/``, gitignored, never leaves this machine):
+Layout (``data/brokerflow/{provider}/``, one tree per provider, gitignored, never leaves this machine):
 
 - ``{STOCK}/{YYYY-MM}.parquet``  daily rows (see providers.ROW_COLUMNS)
 - ``{STOCK}/fetched.json``       {day: provider} for every day already requested, including days the

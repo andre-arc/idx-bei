@@ -11,7 +11,8 @@ Jobs (defaults, overridable with env vars):
 - ``prices``         18:30 on trading days, retried every 30 min until 23:00 — stock / broker / index summary.
 - ``screen``         19:00 on trading days — rebuild the title screen (feeds the leads list).
 - ``brokerflow``     19:30 on trading days — cache missing broker-summary days for watched, tracked and top
-  lead tickers with the user's own API key (skipped without one; stops at BROKERFLOW_DAILY_CAP).
+  lead tickers with the default provider (BROKERFLOW_PROVIDER or the first key set; skipped without a
+  key; stops at BROKERFLOW_DAILY_CAP).
 - ``dossiers``       20:00 on trading days — refresh digests of active Deal Tracker tickers.
 - ``cleanup``        Sundays 03:00 — retention and compaction (``idx cleanup --apply``, see pipelines/cleanup.py).
 
@@ -203,20 +204,21 @@ def brokerflow_tickers() -> list[str]:
 
 
 def job_brokerflow(now: datetime) -> str:
-    from idx.brokerflow import cache
+    from idx.brokerflow import cache, cache_dir
     from idx.brokerflow.providers import get_provider
     from idx.core.timeseries import read_dataset
 
     provider = get_provider()
     if provider is None:
         return "skipped: no INVEZGO_API_KEY / SECTORS_API_KEY"
+    base = cache_dir(provider.name)
     end = now.date().isoformat()
     start = (now.date() - timedelta(days=_env_int("BROKERFLOW_DAYS", 90))).isoformat()
     prices = read_dataset("stock_summary", start, end)
     fetched, stopped, failed = 0, None, []
     for t in brokerflow_tickers():
         try:
-            res = cache.fetch(t, start, end, provider, prices=prices)
+            res = cache.fetch(t, start, end, provider, prices=prices, base=base)
         except Exception as exc:  # one bad ticker must not stop the rest
             log.warning("brokerflow %s failed: %s", t, exc)
             failed.append(t)
@@ -225,8 +227,8 @@ def job_brokerflow(now: datetime) -> str:
         if res["stopped"]:
             stopped = res["stopped"]
             break
-    u = cache.usage()
-    msg = f"{fetched} stock-days fetched, {u['today']} requests today ({u['month']} this month)"
+    u = cache.usage(base=base)
+    msg = f"{provider.name}: {fetched} stock-days fetched, {u['today']} requests today ({u['month']} this month)"
     if stopped:
         msg += f"; stopped: {stopped}"
     if failed:

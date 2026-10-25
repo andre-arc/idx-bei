@@ -189,14 +189,30 @@ class Sectors(Provider):
         return frame(rows)
 
 
+PROVIDERS = ("invezgo", "sectors")  # preference order when BROKERFLOW_PROVIDER is not set
+_KEYS = {"invezgo": "INVEZGO_API_KEY", "sectors": "SECTORS_API_KEY"}
+
+
+def configured_providers() -> list[str]:
+    """Providers whose API key is set, in preference order."""
+    return [n for n in PROVIDERS if os.environ.get(_KEYS[n], "")]
+
+
+def default_provider() -> str | None:
+    """BROKERFLOW_PROVIDER if its key is set, else the first configured provider."""
+    configured = configured_providers()
+    name = os.environ.get("BROKERFLOW_PROVIDER", "").strip().lower()
+    if name in configured:
+        return name
+    return configured[0] if configured else None
+
+
 def get_provider(name: str | None = None) -> Provider | None:
-    """Provider from the environment: BROKERFLOW_PROVIDER, else whichever key is set (Invezgo first)."""
-    name = (name or os.environ.get("BROKERFLOW_PROVIDER", "")).strip().lower()
-    inv, sec = os.environ.get("INVEZGO_API_KEY", ""), os.environ.get("SECTORS_API_KEY", "")
-    if name == "invezgo" or (not name and inv):
-        if not inv:
-            return None
-        return Invezgo(inv, foreign=os.environ.get("BROKERFLOW_FOREIGN", "0") == "1")
-    if name == "sectors" or (not name and sec):
-        return Sectors(sec) if sec else None
-    return None
+    """Provider `name` (default: default_provider()); None when unknown or its key is not set."""
+    name = (name or default_provider() or "").strip().lower()
+    if name not in configured_providers():
+        return None
+    key = os.environ[_KEYS[name]]
+    if name == "invezgo":
+        return Invezgo(key, foreign=os.environ.get("BROKERFLOW_FOREIGN", "0") == "1")
+    return Sectors(key)

@@ -32,6 +32,23 @@ const STATUS: Record<BrokerStatus, { label: string; color: string; hint: string 
 type SortKey = 'position_value' | 'floating_pl' | 'floating_pct' | 'realized_pl' | 'total_pl' | 'recent_net_shares' | 'share_of_volume';
 type Side = 'all' | 'long' | 'short';
 
+const PROVIDER_KEY = 'brokerflow.provider';
+const readProvider = () => {
+  try {
+    return localStorage.getItem(PROVIDER_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
+const saveProvider = (name: string) => {
+  try {
+    if (name) localStorage.setItem(PROVIDER_KEY, name);
+    else localStorage.removeItem(PROVIDER_KEY);
+  } catch {
+    /* storage unavailable: the choice lasts for this visit only */
+  }
+};
+
 const isoDaysAgo = (days: number) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 const fmtRpShort = (n: number) => {
   const a = Math.abs(n);
@@ -46,6 +63,7 @@ const tone = (x: number | null | undefined) =>
 
 export const BrokerFlowTab: React.FC<BrokerFlowTabProps> = ({ onSelectStock }) => {
   const [status, setStatus] = useState<BrokerFlowStatus | null>(null);
+  const [choice, setChoice] = useState(readProvider); // '' = server default
   const [ticker, setTicker] = useState('');
   const [from, setFrom] = useState(isoDaysAgo(90));
   const [to, setTo] = useState(isoDaysAgo(0));
@@ -61,9 +79,27 @@ export const BrokerFlowTab: React.FC<BrokerFlowTabProps> = ({ onSelectStock }) =
   const [sortDesc, setSortDesc] = useState(true);
 
   const refreshStatus = useCallback(() => {
-    fetchBrokerFlowStatus().then(setStatus).catch(() => setStatus(null));
-  }, []);
+    fetchBrokerFlowStatus(choice || undefined)
+      .then((s) => {
+        // A remembered provider whose key was removed: fall back to the server default.
+        if (choice && !s.configured && s.providers.some((p) => p.configured)) {
+          saveProvider('');
+          setChoice('');
+          return;
+        }
+        setStatus(s);
+      })
+      .catch(() => setStatus(null));
+  }, [choice]);
   useEffect(refreshStatus, [refreshStatus]);
+  const provider = status?.provider ?? undefined;
+
+  const chooseProvider = (name: string) => {
+    saveProvider(name);
+    setChoice(name);
+    setData(null);
+    setFetchResult(null);
+  };
 
   const load = useCallback(
     (code = ticker) => {
@@ -72,19 +108,19 @@ export const BrokerFlowTab: React.FC<BrokerFlowTabProps> = ({ onSelectStock }) =
       setLoading(true);
       setError(null);
       setOnlyStatus(null);
-      fetchBrokerPositions(t, from, to, recent)
+      fetchBrokerPositions(t, from, to, recent, provider)
         .then(setData)
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     },
-    [ticker, from, to, recent],
+    [ticker, from, to, recent, provider],
   );
 
   const runFetch = () => {
     if (!data) return;
     setFetching(true);
     setError(null);
-    runBrokerFlowFetch(data.stock, from, to)
+    runBrokerFlowFetch(data.stock, from, to, false, provider)
       .then((res) => {
         setFetchResult(res);
         refreshStatus();
@@ -153,7 +189,23 @@ export const BrokerFlowTab: React.FC<BrokerFlowTabProps> = ({ onSelectStock }) =
         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'right' }}>
           {status?.configured ? (
             <>
-              Provider <b style={{ color: '#2dd4bf' }}>{status.provider}</b>
+              <label>
+                Provider{' '}
+                <select
+                  id="bf-provider"
+                  className="form-control"
+                  style={{ display: 'inline-block', width: 'auto', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                  value={status.provider ?? ''}
+                  onChange={(e) => chooseProvider(e.target.value)}
+                  title="Each provider has its own cache and quota; their numbers differ slightly"
+                >
+                  {status.providers.map((p) => (
+                    <option key={p.name} value={p.name} disabled={!p.configured}>
+                      {p.configured ? p.name : `${p.name} (no key)`}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <br />
               {fmtInt(status.usage.today)} / {fmtInt(status.daily_cap)} requests today · {fmtInt(status.usage.month)} this month
             </>
